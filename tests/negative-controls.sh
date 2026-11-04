@@ -278,6 +278,27 @@ PY
 [ $? -eq 0 ] && ok "control 11: a past-EOF READ is recorded with len=0 and touches no page" \
              || bad "control 11: past-EOF accounting is wrong at the call site"
 
+# --------------------------------------------------------------- control 12
+# AC2 in one line: the channel check must be able to DISAGREE. Run it against a
+# receipt for a served read (clean) and against a deliberately leaked copy of the
+# deny artifact (dirty). If both come back the same, it is decorative.
+LEAK="$(mktemp -d /var/tmp/leak.XXXXXX)"
+CANARY="canary-DENY-unit-$$"
+printf '%s\n' "$CANARY" > "$LEAK/deny.txt"
+printf '%s\n' "$CANARY" > "$LEAK/copy-of-deny.txt"
+python3 fuse/channel-check.py --deny "$LEAK/deny.txt" --canary "$CANARY" \
+  --scan-root "$LEAK" --scan-budget 1000 >/dev/null 2>&1
+rc=$?
+[ $rc -ne 0 ] && ok "control 12: the channel check calls a leaked copy REACHABLE" \
+              || bad "control 12: a copy of the deny artifact beside it was called SEALED"
+rm -f "$LEAK/copy-of-deny.txt"
+python3 fuse/channel-check.py --deny "$LEAK/deny.txt" --canary "$CANARY" \
+  --scan-root "$LEAK" --scan-budget 1000 >/dev/null 2>&1
+rc=$?
+[ $rc -eq 0 ] && ok "control 12b: the same check calls the artifact alone SEALED" \
+              || bad "control 12b: a clean tree was called REACHABLE (check is stuck on)"
+rm -rf "$LEAK"
+
 say ""
 say "controls: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

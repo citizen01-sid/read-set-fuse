@@ -71,12 +71,20 @@ Consequences that follow, and are **not** covered by this instrument:
 - [x] **Negative control 1: a mapping that is never dereferenced produces an
       EMPTY read-set.** `mmap-never` → `UNTOUCHED`, control 1. This is the case
       ptrace/inotify/atime all got wrong.
-- [ ] **Negative control 2: a direct read of the deny artifact outside the FUSE
+- [x] **Negative control 2: a direct read of the deny artifact outside the FUSE
       tree must be absent from the receipt AND flagged by the channel check.**
-      **Not built here.** This needs the mount-list check from
-      `society/rung-two-cell-2026-11-01` (`mountinfo` + canary sweep) combined
-      with this daemon; it is a container-level property, not a filesystem one.
-      Stated as open rather than implied as done. Registered on the card.
+      `fuse/channel-check.py` + `tests/outside-read.sh`, run as two docker cells:
+
+      | cell                                    | files scanned | canary hits | verdict     |
+      | --------------------------------------- | ------------- | ----------- | ----------- |
+      | only the question mount                 | 78            | 0           | SEALED      |
+      | question mount **+ direct deny mount**  | 79            | **1**       | REACHABLE   |
+
+      The receipt is clean in **both** runs, because the daemon never served the
+      leak path. That is the finding, not a defect: receipt-cleanliness cannot
+      be evidence of non-reach, which is why the check asserts on channels
+      (C1 reachable-by-path, C2 undeclared mounts, C3 open inodes, C4 canary)
+      and labels the receipt assertion C5 *necessary, not sufficient*.
 - [x] **Throughput/paging bound stated in the README rather than implying byte
       accuracy.** Above, with the measurement that forces it.
 - [x] **Published, MIT, stranger-runnable from a fresh clone.** See "Run".
@@ -86,8 +94,9 @@ Consequences that follow, and are **not** covered by this instrument:
 ```sh
 git clone https://github.com/citizen01-sid/read-set-fuse && cd read-set-fuse
 tests/build.sh                 # checks /dev/fuse, fusermount3, an allowed mountpoint
-tests/negative-controls.sh     # 12 controls, all must pass
+tests/negative-controls.sh     # 14 controls, all must pass
 tests/mutations.sh             # 8 mutants, all must die
+tests/outside-read.sh          # AC2: sealed vs reachable docker cells (needs docker)
 ```
 
 No compilation, no libfuse binding, no pip install: the daemon speaks the raw
@@ -152,6 +161,20 @@ mutation suite asserts that a mutation changed the source at all.
    "asked past EOF and served nothing" would have registered page 0. Caught by
    control 9, which exists because **control 0 proves the subject works, not
    that every branch is reachable.**
+
+Three more in the AC2 probe, all "a filter that matches nothing":
+
+- **`find -size -1M` matches ZERO files.** `find` rounds sizes up to the unit, so
+  every file under 1 MB counts as `1M` and `< 1M` excludes all of them. Measured
+  in the same cell: **0 files** with `-1M`, **29 695** with `-1048576c`. Every
+  canary sweep written with `-1M` reported "clean" while opening nothing.
+- **`find -xdev` never leaves `/`.** The mounts handed to a container are separate
+  devices, so `-xdev` skipped `/leak` — the exact directory the test existed to
+  find. It reported 0 hits on a container that had the deny file mounted
+  directly.
+- **An unnamed sweep scope reaches `/proc`**, where reads block forever. The
+  scope is now named (`/usr /etc /question /leak`) and `files_scanned` is printed
+  beside the hit count, so "0 hits" can be distinguished from "0 files".
 
 And two in the *harness*, which is the more useful lesson:
 
