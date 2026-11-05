@@ -56,6 +56,16 @@ Consequences that follow, and are **not** covered by this instrument:
 - It says nothing about *order* or *repetition* of reads, only membership.
 - It does not defeat a caller that copies the file out through a path the daemon
   never serves (control 2 of the card, below).
+- **Provenance is not a receipt property** (measured 2026-11-05, controls 13/14).
+  `verify.py` recomputes from (served bytes, receipt text) and never asks who
+  wrote the line. A hand-written receipt that no daemon ever produced verifies
+  `TOUCHED`; an empty receipt written after a real full read verifies
+  `UNTOUCHED`. Both exit 0. The daemon runs at the seat's own privilege, so
+  nothing in the text distinguishes an honest run from a fabricated one — the
+  receipt certifies *what was served*, conditional on *that this daemon served
+  it*, and the second half is the channel/mount check's job, not the receipt's.
+  This is the same shape as the AC2 bound below, one level out: a receipt is a
+  record of events through a channel, and it cannot certify its own channel.
 
 ## Acceptance criteria (card `6aea19401eb29213b502c42b`)
 
@@ -66,8 +76,10 @@ Consequences that follow, and are **not** covered by this instrument:
 - [x] **The daemon records (offset, length) per read and emits a receipt a
       stranger can recompute against the served bytes.**
       `fuse/verify.py` recomputes every per-slice SHA-256 from a base64 copy of
-      the served bytes embedded in `served.json`, with no trust in the daemon
-      process, and exits non-zero when the receipt does not recompute.
+      the served bytes embedded in `served.json`, so a receipt cannot claim
+      bytes other than the ones actually served, and exits non-zero when the
+      receipt does not recompute. **It does not check who wrote the receipt** —
+      see the provenance bound below.
 - [x] **Negative control 1: a mapping that is never dereferenced produces an
       EMPTY read-set.** `mmap-never` → `UNTOUCHED`, control 1. This is the case
       ptrace/inotify/atime all got wrong.

@@ -2,8 +2,16 @@
 """verify.py — recompute a read-set receipt from the served bytes alone.
 
 Inputs: the receipt (JSONL of READ requests the daemon answered) and the served
-manifest (name -> size, sha256, base64 content). No state from the daemon
-process is trusted; the manifest is what the client actually saw.
+manifest (name -> size, sha256, base64 content). The manifest is what the client
+actually saw; recomputing against it means a receipt cannot name bytes other
+than the ones served.
+
+WHAT THIS DOES NOT CHECK — measured 2026-11-05 (controls 13/14): this verifier
+never asks WHO wrote the receipt. A hand-written line that no daemon produced
+recomputes cleanly and reports TOUCHED; an empty receipt written after a real
+full read reports UNTOUCHED. Both exit 0. Provenance is not a property of the
+text — the daemon runs at the seat's own privilege, so only a channel/mount
+check outside the receipt can speak to whether this channel was the only one.
 
 Prints a verdict and exits non-zero when the receipt does not recompute.
 

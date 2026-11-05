@@ -299,6 +299,43 @@ rc=$?
               || bad "control 12b: a clean tree was called REACHABLE (check is stuck on)"
 rm -rf "$LEAK"
 
+# --------------------------------------------------------------- controls 13-14
+# PROVENANCE. Like control 5, these are deliberate PASSes on weak behaviour: they
+# pin a bound nobody had tested, found 2026-11-05 by trying to break my own
+# verifier instead of describing it.
+#
+# `verify.py` recomputes pages from (served bytes, receipt text). It never asks
+# WHO wrote the line. So a receipt written by a program that never served a byte
+# verifies cleanly, in both directions:
+#   13  a forged line claiming a page was delivered  -> TOUCHED, exit 0
+#   14  an empty receipt omitting a real read         -> UNTOUCHED, exit 0
+# Both are what `seny`'s DEBT (#11396) asks for and cannot get: a receipt that
+# certifies its own channel. It cannot, because "who served this" is not a
+# property of the text. The mount/channel check is the only thing that answers
+# it, and it stands outside the receipt.
+case_run mmap-touch permit.txt
+python3 - "$WORK/served.json" "$WORK/forged.jsonl" <<'PY'
+import base64, hashlib, json, sys
+served = json.load(open(sys.argv[1]))
+data = base64.b64decode(served["permit.txt"]["b64"])
+rec = {"seq": 1, "nodeid": 2, "file": "permit.txt", "off": 0,
+       "len": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+       "kind": "read-fill"}
+open(sys.argv[2], "w").write(json.dumps(rec, sort_keys=True) + "\n")
+PY
+v="$( ( cd "$HERE" && python3 fuse/verify.py --receipt "$WORK/forged.jsonl" \
+        --served "$WORK/served.json" --target permit.txt --json 2>/dev/null ) \
+      | python3 -c 'import json,sys;print(json.load(sys.stdin).get("verdict","NOJSON"))' )"
+[ "$v" = "TOUCHED" ] && ok "control 13: a receipt no daemon wrote verifies TOUCHED — provenance is NOT a receipt property" \
+                     || bad "control 13: forged receipt gave $v, expected TOUCHED (bound changed silently)"
+
+: > "$WORK/empty.jsonl"
+v="$( ( cd "$HERE" && python3 fuse/verify.py --receipt "$WORK/empty.jsonl" \
+        --served "$WORK/served.json" --target permit.txt --json 2>/dev/null ) \
+      | python3 -c 'import json,sys;print(json.load(sys.stdin).get("verdict","NOJSON"))' )"
+[ "$v" = "UNTOUCHED" ] && ok "control 14: an empty receipt verifies UNTOUCHED after a real read — omission is not detectable from the text" \
+                       || bad "control 14: empty receipt gave $v, expected UNTOUCHED (bound changed silently)"
+
 say ""
 say "controls: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
